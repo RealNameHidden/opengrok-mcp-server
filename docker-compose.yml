@@ -1,0 +1,55 @@
+# Shared network so the mcp-server container can reach opengrok
+# by its service name: http://opengrok:8080
+networks:
+  opengrok-net:
+    driver: bridge
+
+volumes:
+  # Use a fresh named volume so stale Lucene indexes from older OpenGrok
+  # versions do not prevent startup or reindexing.
+  opengrok-data-v1-7-32:   # index data, persists across restarts
+  opengrok-etc:    # OpenGrok configuration, persists across restarts
+
+services:
+
+  # --------------------------------------------------------------------------
+  # OpenGrok — source code search engine
+  # --------------------------------------------------------------------------
+  opengrok:
+    image: opengrok/docker:1.7.32
+    platform: linux/amd64          # needed on Apple Silicon (M1/M2/M3)
+    container_name: opengrok
+    ports:
+      - "8080:8080"                # expose UI to host for browser access
+    environment:
+      OPENGROK_DOCKER_SKIP_CHOWN: "true"   # avoids permission errors on macOS mounts
+      SYNC_PERIOD_MINUTES: "60"            # re-index every 60 minutes
+      READONLY_CONFIG_FILE: /tmp/opengrok-readonly.xml
+    volumes:
+      - ${OPENGROK_SRC:-~/opengrok/src}:/opengrok/src          # your source code
+      - opengrok-data-v1-7-32:/opengrok/data                    # index storage
+      - opengrok-etc:/opengrok/etc                              # config storage
+      - ./config/opengrok-readonly.xml:/tmp/opengrok-readonly.xml  # auth config
+    networks:
+      - opengrok-net
+    restart: unless-stopped
+
+  # --------------------------------------------------------------------------
+  # MCP server — Claude's interface to OpenGrok
+  # --------------------------------------------------------------------------
+  mcp-server:
+    build: .
+    container_name: opengrok-mcp
+    environment:
+      # Uses the service name 'opengrok' as the hostname — works because
+      # both containers are on the same opengrok-net Docker network.
+      OPENGROK_URL: "http://opengrok:8080"
+      OPENGROK_TOKEN: "mcp-secret-code-123"
+    networks:
+      - opengrok-net
+    depends_on:
+      - opengrok
+    # Sleep keeps the container alive so Claude Code can exec into it.
+    # The actual MCP binary is run via: docker exec -i opengrok-mcp /opengrok-mcp-server
+    command: sleep infinity
+    restart: unless-stopped

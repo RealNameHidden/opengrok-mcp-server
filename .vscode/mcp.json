@@ -1,0 +1,9 @@
+{
+  "servers": {
+    "opengrok": {
+      "type": "stdio",
+      "command": "docker",
+      "args": ["exec", "-i", "opengrok-mcp", "/opengrok-mcp-server"]
+    }
+  }
+}

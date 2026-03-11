@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Read-only configuration merged into OpenGrok on startup.
+  Mounted via READONLY_CONFIG_FILE in docker-compose.yml.
+
+  authenticationTokens: any token here is accepted as a valid Bearer token
+  on all REST API requests. Must match OPENGROK_TOKEN in the mcp-server service.
+
+  allowInsecureTokens: required to accept Bearer tokens over plain HTTP
+  (i.e., the Docker internal network). Without this, Bearer auth only works
+  over HTTPS.
+-->
+<java version="1.8.0_212" class="java.beans.XMLDecoder">
+ <object class="org.opengrok.indexer.configuration.Configuration">
+  <void property="authenticationTokens">
+   <void method="add">
+    <string>mcp-secret-code-123</string>
+   </void>
+  </void>
+  <void property="allowInsecureTokens">
+   <boolean>true</boolean>
+  </void>
+ </object>
+</java>
