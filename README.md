@@ -45,6 +45,35 @@ git clone https://github.com/jenkinsci/jenkins
 
 That creates an indexed project named `jenkins`.
 
+### Index your own local project
+
+If you want to index your own code locally with Docker OpenGrok, you have two
+simple options.
+
+Option 1: copy or clone your project under the OpenGrok source root:
+
+```bash
+mkdir -p ~/opengrok/src
+cp -R /path/to/your-project ~/opengrok/src/your-project
+```
+
+That will be indexed as the OpenGrok project `your-project`.
+
+Option 2: point Docker Compose at a different existing source root with
+`OPENGROK_SRC`. This is useful if you already keep multiple repositories under
+one directory:
+
+```bash
+export OPENGROK_SRC="/path/to/repos"
+docker compose up -d
+```
+
+In that case, each subdirectory under `/path/to/repos` becomes its own OpenGrok
+project.
+
+If you only have a single repository and want to index just that one, put it in
+its own parent directory so OpenGrok sees one subdirectory as one project.
+
 ### 2. Start OpenGrok and the MCP server
 
 ```bash
