@@ -1,0 +1,93 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  go-tests:
+    name: Go Tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Run go test
+        run: go test ./...
+
+      - name: Run go vet
+        run: go vet ./...
+
+      - name: Run go build
+        run: go build ./...
+
+  integration:
+    name: Docker Integration
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Prepare OpenGrok source tree
+        run: |
+          mkdir -p "$HOME/opengrok/src/example-repo"
+          rsync -a --delete --exclude '.git' ./ "$HOME/opengrok/src/example-repo/"
+
+      - name: Start Docker Compose stack
+        run: docker compose up -d --build
+
+      - name: Wait for OpenGrok to index and serve API
+        run: |
+          for i in $(seq 1 60); do
+            if curl -fsS \
+              -H "Authorization: Bearer mcp-secret-code-123" \
+              http://localhost:8080/api/v1/projects >/tmp/projects.json; then
+              break
+            fi
+            sleep 10
+          done
+
+          test -s /tmp/projects.json
+          cat /tmp/projects.json
+          grep -q 'example-repo' /tmp/projects.json
+
+      - name: Verify OpenGrok search API
+        run: |
+          curl -fsS \
+            -H "Authorization: Bearer mcp-secret-code-123" \
+            "http://localhost:8080/api/v1/search?full=NewClient&projects=example-repo&maxresults=5" \
+            >/tmp/search.json
+          cat /tmp/search.json
+          grep -q 'client.go' /tmp/search.json
+
+      - name: Verify OpenGrok file content API
+        run: |
+          curl -fsS \
+            -H "Authorization: Bearer mcp-secret-code-123" \
+            "http://localhost:8080/api/v1/file/content?path=%2Fexample-repo%2Finternal%2Fopengrok%2Fclient.go" \
+            >/tmp/client.go
+          grep -q 'func NewClient' /tmp/client.go
+
+      - name: Verify MCP container can reach OpenGrok
+        run: |
+          docker exec opengrok-mcp sh -lc \
+            'wget -qO- --header="Authorization: Bearer $OPENGROK_TOKEN" "$OPENGROK_URL/api/v1/projects"' \
+            >/tmp/mcp-projects.json
+          cat /tmp/mcp-projects.json
+          grep -q 'example-repo' /tmp/mcp-projects.json
+
+      - name: Show container logs on failure
+        if: failure()
+        run: docker compose logs --tail=200
+
+      - name: Stop Docker Compose stack
+        if: always()
+        run: docker compose down -v

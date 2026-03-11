@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "opengrok": {
+      "command": "docker",
+      "args": ["exec", "-i", "opengrok-mcp", "/opengrok-mcp-server"]
+    }
+  }
+}

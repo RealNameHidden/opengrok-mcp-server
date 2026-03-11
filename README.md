@@ -1,68 +1,41 @@
 # opengrok-mcp-server
 
-An MCP server that lets MCP-compatible clients such as Claude Code or Copilot
-in VS Code search source code indexed by
-[OpenGrok](https://github.com/oracle/opengrok). Instead of writing Lucene
-queries by hand, you ask natural language questions and the MCP client can
-search OpenGrok on your behalf.
+An MCP server that lets MCP-compatible clients such as Cursor, VS Code, Claude
+Code, or Copilot query source code indexed by
+[OpenGrok](https://github.com/oracle/opengrok).
 
-## Why this is useful
+Instead of making an agent scan the filesystem on every request, this server
+uses OpenGrok's index for fast code search, definition lookup, reference lookup,
+file lookup, and file reads.
 
-If you only need to search one local repository on your own machine, your IDE's
-built-in search, symbol navigation, or `rg` may be simpler.
+## When to use it
 
-This project becomes useful when you want:
+If you only need to search one local repository, your IDE search, symbol
+navigation, or `rg` may be simpler.
 
-- AI tools to search an existing OpenGrok index through MCP instead of opening every repo locally
-- a shared search service for large or multiple repositories
-- better code-search primitives for agents, such as "find definitions", "find references", and "read this file"
-- access to centrally indexed codebases that are too large or inconvenient to clone into every editor workspace
-- a thin bridge between OpenGrok and MCP clients, so the same indexed source can be used from different tools
+This server is useful when:
 
-In short: local IDE search is great for local development, while this server is
-useful when OpenGrok is already the source of truth for searchable code and you
-want AI clients to use it directly.
+- OpenGrok is already your source of truth for searchable code
+- you want AI clients to search large indexed repositories quickly
+- you want structured tools like definition search, reference search, and file reads
+- you want multiple clients to use the same indexed codebase
 
-## How it works
+## Tools
 
-```
-You ask your MCP client a question
-  → the client picks the right search tool
-    → MCP server queries OpenGrok
-      → OpenGrok searches its Lucene index
-        → Results come back to the client
-          → the client reads the code and answers
-```
-
-## Tools exposed to MCP clients
-
-| Tool | What it searches |
+| Tool | Purpose |
 |---|---|
-| `search_code` | Full-text — any occurrence of the query inside file contents |
-| `search_definition` | Only where a symbol (function, class, etc.) is *defined* |
-| `search_references` | Only where a symbol is *called or used* |
-| `search_file` | File path/name patterns |
-| `get_file_content` | Fetches the complete source of a specific file |
-| `list_projects` | Lists all projects indexed by OpenGrok |
+| `search_code` | Full-text search inside file contents |
+| `search_definition` | Find where a symbol is defined |
+| `search_references` | Find where a symbol is used |
+| `search_file` | Search by file path or name |
+| `get_file_content` | Read a file from the indexed source tree |
+| `list_projects` | List indexed OpenGrok projects |
 
----
+## Quick start
 
-## Setup
+### 1. Put repositories under the OpenGrok source root
 
-### 1. Create your source directory
-
-OpenGrok treats each subdirectory of its source folder as a separate **project**.
-Clone any repos you want indexed into it:
-
-```bash
-mkdir -p ~/opengrok/src
-cd ~/opengrok/src
-
-# Each repo becomes one searchable project.
-git clone <your-repo-url>
-```
-
-**Example — indexing the Jenkins source code:**
+Each subdirectory becomes one OpenGrok project.
 
 ```bash
 mkdir -p ~/opengrok/src
@@ -70,12 +43,9 @@ cd ~/opengrok/src
 git clone https://github.com/jenkinsci/jenkins
 ```
 
-This gives OpenGrok a single project called `jenkins`. Add as many repos as you
-like — each subdirectory becomes a project.
+That creates an indexed project named `jenkins`.
 
----
-
-### 2. Start everything with Docker Compose
+### 2. Start OpenGrok and the MCP server
 
 ```bash
 git clone https://github.com/8ball030/opengrok-mcp-server
@@ -83,38 +53,28 @@ cd opengrok-mcp-server
 docker compose up -d
 ```
 
-This starts two containers on a shared Docker network (`opengrok-net`):
+This starts:
 
-| Container | Role |
-|---|---|
-| `opengrok` | OpenGrok web app + indexer. UI on [http://localhost:8080](http://localhost:8080) |
-| `opengrok-mcp` | MCP server binary, kept alive for an MCP client to exec into |
+- `opengrok` on `http://localhost:8080`
+- `opengrok-mcp`, a container kept alive so your MCP client can `docker exec` into it
 
-The MCP server calls OpenGrok at `http://opengrok:8080` — the service name
-resolves automatically within the Docker network, no localhost forwarding needed.
+### 3. Wait for indexing, then verify
 
-**Wait for indexing to finish (~2–3 min for Jenkins), then verify:**
+The local demo OpenGrok in this repo is token-protected. Use the bundled demo
+token when checking it from the host:
 
 ```bash
-curl http://localhost:8080/api/v1/projects
-# Should return: ["jenkins"]
+curl -H "Authorization: Bearer mcp-secret-code-123" \
+  http://localhost:8080/api/v1/projects
 ```
 
-**Re-index after pulling new commits:**
+Expected response:
 
-```bash
-docker compose restart opengrok
+```json
+["jenkins"]
 ```
 
-**Stop everything:**
-
-```bash
-docker compose down
-```
-
----
-
-### 3. Register with an MCP client
+### 4. Connect an MCP client
 
 Example with Claude Code:
 
@@ -122,55 +82,113 @@ Example with Claude Code:
 claude mcp add opengrok -s user -- docker exec -i opengrok-mcp /opengrok-mcp-server
 ```
 
-The `-s user` flag makes it available in all your projects, not just the current one.
-`docker exec -i opengrok-mcp` runs the binary inside the already-running container
-using stdin/stdout — no port forwarding or extra config needed.
+Example project config for Cursor in `.cursor/mcp.json`:
 
-Verify it registered:
+```json
+{
+  "mcpServers": {
+    "opengrok": {
+      "command": "docker",
+      "args": ["exec", "-i", "opengrok-mcp", "/opengrok-mcp-server"]
+    }
+  }
+}
+```
+
+Example project config for VS Code in `.vscode/mcp.json`:
+
+```json
+{
+  "servers": {
+    "opengrok": {
+      "type": "stdio",
+      "command": "docker",
+      "args": ["exec", "-i", "opengrok-mcp", "/opengrok-mcp-server"]
+    }
+  }
+}
+```
+
+Committing these config files is optional. They are safe to share when they do
+not contain secrets or machine-specific paths.
+
+## Example questions
+
+Once connected, ask your MCP client things like:
+
+```text
+What projects are indexed?
+Find the definition of the Executor class in Jenkins.
+What calls Queue.maintain()?
+Show me all files named *Plugin.java.
+Read the full source of core/src/main/java/hudson/model/Executor.java in the jenkins project.
+```
+
+## Using a remote OpenGrok server
+
+You do not need the bundled local OpenGrok container if your code is already
+indexed elsewhere.
+
+Set:
+
+- `OPENGROK_URL` to the remote OpenGrok base URL
+- `OPENGROK_TOKEN` to a Bearer token accepted by that server
+
+Example:
 
 ```bash
-claude mcp list
+OPENGROK_URL="https://opengrok.example.com" \
+OPENGROK_TOKEN="your-real-token" \
+go run ./cmd/server
 ```
 
----
+Or with Docker:
 
-## Usage
-
-Once registered, ask your MCP client questions in plain English:
-
-```
-"What projects are indexed?"
-"Where is the HTTP timeout configured in Jenkins?"
-"Find the definition of the Executor class"
-"What calls the Queue.maintain() method?"
-"Show me all files named *Plugin.java"
-"Read the full source of src/main/java/jenkins/model/Jenkins.java in the jenkins project"
+```bash
+docker run --rm -i \
+  -e OPENGROK_URL="https://opengrok.example.com" \
+  -e OPENGROK_TOKEN="your-real-token" \
+  opengrok-mcp-server
 ```
 
-The client can decide which tool to call, run the search, and answer based on
-the actual source code — no manual query writing needed.
+Then point your MCP client at that command instead of the local
+`docker exec -i opengrok-mcp /opengrok-mcp-server` example.
 
----
+Notes:
+
+- `config/opengrok-readonly.xml` is only used by the local demo OpenGrok container
+- this server currently supports Bearer-token auth to OpenGrok
+- the machine running this MCP server must be able to reach and trust the remote OpenGrok server
+
+## Useful commands
+
+Re-index after pulling source changes:
+
+```bash
+docker compose restart opengrok
+```
+
+Stop everything:
+
+```bash
+docker compose down
+```
 
 ## Environment variables
 
 | Variable | Required | Description |
 |---|---|---|
-| `OPENGROK_URL` | Yes | URL of OpenGrok (set automatically in Docker Compose) |
-| `OPENGROK_TOKEN` | No | Bearer token if your OpenGrok instance requires auth |
-
----
+| `OPENGROK_URL` | Yes | Base URL of the OpenGrok instance |
+| `OPENGROK_TOKEN` | No | Bearer token for authenticated OpenGrok instances |
 
 ## Project structure
 
-```
+```text
 opengrok-mcp-server/
-├── cmd/server/main.go          # MCP server entry point and tool definitions
-├── internal/opengrok/client.go # OpenGrok REST API client
-├── config/
-│   └── opengrok-readonly.xml   # Read-only config merged into OpenGrok at startup
-├── Dockerfile                  # Multi-stage Go build → alpine runtime image
-├── docker-compose.yml          # OpenGrok + MCP server on shared network
-├── go.mod
+├── cmd/server/main.go
+├── internal/opengrok/client.go
+├── config/opengrok-readonly.xml
+├── Dockerfile
+├── docker-compose.yml
 └── README.md
 ```
