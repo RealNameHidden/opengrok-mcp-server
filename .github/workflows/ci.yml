@@ -47,23 +47,33 @@ jobs:
       - name: Wait for OpenGrok to index and serve API
         run: |
           for i in $(seq 1 60); do
-            if curl -fsS \
+            curl -fsS \
               -H "Authorization: Bearer mcp-secret-code-123" \
-              http://localhost:8080/api/v1/projects >/tmp/projects.json; then
+              http://localhost:8080/api/v1/projects >/tmp/projects.json || true
+
+            curl -fsS \
+              -H "Authorization: Bearer mcp-secret-code-123" \
+              "http://localhost:8080/api/v1/search?def=NewClient&projects=example-repo&maxresults=5" \
+              >/tmp/search-ready.json || true
+
+            if grep -q 'example-repo' /tmp/projects.json && grep -q 'client.go' /tmp/search-ready.json; then
               break
             fi
             sleep 10
           done
 
           test -s /tmp/projects.json
+          test -s /tmp/search-ready.json
           cat /tmp/projects.json
+          cat /tmp/search-ready.json
           grep -q 'example-repo' /tmp/projects.json
+          grep -q 'client.go' /tmp/search-ready.json
 
       - name: Verify OpenGrok search API
         run: |
           curl -fsS \
             -H "Authorization: Bearer mcp-secret-code-123" \
-            "http://localhost:8080/api/v1/search?full=NewClient&projects=example-repo&maxresults=5" \
+            "http://localhost:8080/api/v1/search?def=NewClient&projects=example-repo&maxresults=5" \
             >/tmp/search.json
           cat /tmp/search.json
           grep -q 'client.go' /tmp/search.json
