@@ -74,6 +74,10 @@ project.
 If you only have a single repository and want to index just that one, put it in
 its own parent directory so OpenGrok sees one subdirectory as one project.
 
+Note: Docker Compose mounts the source directory into the OpenGrok container. It
+does not copy your repositories into the image, so OpenGrok indexes your local
+files directly from the mounted host path.
+
 ### 2. Start OpenGrok and the MCP server
 
 ```bash
